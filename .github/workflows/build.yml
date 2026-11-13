@@ -655,6 +655,15 @@ jobs:
           import kotlin.math.max
           import kotlin.math.min
 
+          private data class CameraConfig(
+              val cameraId: String,
+              val zoomRatio: Float,
+              val fpsRange: Range<Int>?,
+              val previewSize: Size,
+              val sensorOrientation: Int,
+              val isFront: Boolean
+          )
+
           class TransparentWallpaperService : WallpaperService() {
 
               override fun onCreateEngine(): Engine = CameraWallpaperEngine()
@@ -984,15 +993,6 @@ jobs:
                       cameraHandler.removeCallbacks(retryRunnable)
                       cameraHandler.postDelayed(retryRunnable, 250L * retryCount)
                   }
-
-                  private data class CameraConfig(
-                      val cameraId: String,
-                      val zoomRatio: Float,
-                      val fpsRange: Range<Int>?,
-                      val previewSize: Size,
-                      val sensorOrientation: Int,
-                      val isFront: Boolean
-                  )
 
                   private fun resolveCameraConfig(): CameraConfig? {
                       val lensMode = prefs.getString(Prefs.KEY_LENS, Prefs.LENS_BACK_WIDE) ?: Prefs.LENS_BACK_WIDE
