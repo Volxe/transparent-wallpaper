@@ -1,0 +1,1336 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android 36 SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Create project files
+        run: |
+          mkdir -p app/src/main/res/xml
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/java/com/example/transparentwallpaper
+
+          touch app/proguard-rules.pro
+
+          cat <<'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "TransparentWallpaper"
+          include(":app")
+          EOF
+
+          cat <<'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat <<'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "9.5.0" apply false
+          }
+          EOF
+
+          cat <<'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+          }
+
+          android {
+              namespace = "com.example.transparentwallpaper"
+              compileSdk = 36
+
+              defaultConfig {
+                  applicationId = "com.example.transparentwallpaper"
+                  minSdk = 30
+                  targetSdk = 36
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = true
+                      isShrinkResources = true
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat <<'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-feature
+                  android:name="android.hardware.camera.any"
+                  android:required="true" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/ic_wallpaper_thumb"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".TransparentWallpaperService"
+                      android:exported="true"
+                      android:label="@string/wallpaper_name"
+                      android:permission="android.permission.BIND_WALLPAPER">
+                      <intent-filter>
+                          <action android:name="android.service.wallpaper.WallpaperService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.service.wallpaper"
+                          android:resource="@xml/wallpaper" />
+                  </service>
+
+              </application>
+          </manifest>
+          EOF
+
+          cat <<'EOF' > app/src/main/res/xml/wallpaper.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
+              android:description="@string/wallpaper_description"
+              android:settingsActivity="com.example.transparentwallpaper.MainActivity"
+              android:supportsMultipleDisplays="true"
+              android:thumbnail="@drawable/ic_wallpaper_thumb" />
+          EOF
+
+          cat <<'EOF' > app/src/main/res/drawable/ic_wallpaper_thumb.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path
+                  android:fillColor="#161B22"
+                  android:pathData="M0,0h24v24h-24z" />
+              <path
+                  android:fillColor="#58A6FF"
+                  android:pathData="M12,8.5A3.5,3.5 0 1,0 12,15.5A3.5,3.5 0 1,0 12,8.5zM9,3L7.17,5H4C2.9,5 2,5.9 2,7v12c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V7c0,-1.1 -0.9,-2 -2,-2h-3.17L15,3H9zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5s5,2.24 5,5S14.76,17 12,17z" />
+          </vector>
+          EOF
+
+          cat <<'EOF' > app/src/main/res/values/themes.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="android:Theme.DeviceDefault.NoActionBar">
+                  <item name="android:windowBackground">@android:color/black</item>
+              </style>
+          </resources>
+          EOF
+
+          cat <<'EOF' > app/src/main/res/values/strings.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Прозрачные обои</string>
+              <string name="wallpaper_name">Прозрачный экран (Эко)</string>
+              <string name="wallpaper_description">Минимальный расход батареи. Камера работает только на главном экране.</string>
+          </resources>
+          EOF
+
+          cat <<'EOF' > app/src/main/res/layout/activity_main.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/rootScroll"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#0D1117"
+              android:fillViewport="true">
+
+              <LinearLayout
+                  android:id="@+id/rootContainer"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="20dp">
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Прозрачные обои"
+                      android:textColor="#F0F6FC"
+                      android:textSize="26sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="4dp"
+                      android:layout_marginBottom="16dp"
+                      android:text="Режим минимального расхода ресурсов (Zero-Copy GPU)"
+                      android:textColor="#8B949E"
+                      android:textSize="14sp" />
+
+                  <TextView
+                      android:id="@+id/tvPermissionStatus"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginBottom="16dp"
+                      android:background="#161B22"
+                      android:padding="14dp"
+                      android:textColor="#E6EDF3"
+                      android:textSize="14sp" />
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Объектив камеры"
+                      android:textColor="#58A6FF"
+                      android:textSize="14sp"
+                      android:textStyle="bold" />
+
+                  <RadioGroup
+                      android:id="@+id/rgLens"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:layout_marginBottom="14dp"
+                      android:background="#161B22"
+                      android:padding="10dp">
+
+                      <RadioButton
+                          android:id="@+id/rbLensWide"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="Широкоугольная (0.6x — лучший эффект)"
+                          android:textColor="#E6EDF3" />
+
+                      <RadioButton
+                          android:id="@+id/rbLensBack"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="Основная (1x)"
+                          android:textColor="#E6EDF3" />
+
+                      <RadioButton
+                          android:id="@+id/rbLensFront"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="Фронтальная (зеркало)"
+                          android:textColor="#E6EDF3" />
+                  </RadioGroup>
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Лимит FPS (экономия батареи)"
+                      android:textColor="#58A6FF"
+                      android:textSize="14sp"
+                      android:textStyle="bold" />
+
+                  <RadioGroup
+                      android:id="@+id/rgFps"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:layout_marginBottom="14dp"
+                      android:background="#161B22"
+                      android:padding="10dp">
+
+                      <RadioButton
+                          android:id="@+id/rbFps15"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="15 FPS — максимальная экономия"
+                          android:textColor="#E6EDF3" />
+
+                      <RadioButton
+                          android:id="@+id/rbFps24"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="24 FPS — оптимально (рекомендуется)"
+                          android:textColor="#E6EDF3" />
+
+                      <RadioButton
+                          android:id="@+id/rbFps30"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="30 FPS — максимальная плавность"
+                          android:textColor="#E6EDF3" />
+                  </RadioGroup>
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Разрешение потока"
+                      android:textColor="#58A6FF"
+                      android:textSize="14sp"
+                      android:textStyle="bold" />
+
+                  <RadioGroup
+                      android:id="@+id/rgQuality"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:layout_marginBottom="14dp"
+                      android:background="#161B22"
+                      android:padding="10dp">
+
+                      <RadioButton
+                          android:id="@+id/rbQualityEco"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="Эко 720p — минимум нагрева и батареи"
+                          android:textColor="#E6EDF3" />
+
+                      <RadioButton
+                          android:id="@+id/rbQualityHd"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:text="Четкое 1080p — выше детализация"
+                          android:textColor="#E6EDF3" />
+                  </RadioGroup>
+
+                  <TextView
+                      android:id="@+id/tvDimLabel"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Затемнение OLED: 20%"
+                      android:textColor="#58A6FF"
+                      android:textSize="14sp"
+                      android:textStyle="bold" />
+
+                  <SeekBar
+                      android:id="@+id/sbDim"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:layout_marginBottom="20dp"
+                      android:max="70"
+                      android:progress="20" />
+
+                  <Button
+                      android:id="@+id/btnSetWallpaper"
+                      android:layout_width="match_parent"
+                      android:layout_height="54dp"
+                      android:backgroundTint="#238636"
+                      android:text="Установить как живые обои"
+                      android:textAllCaps="false"
+                      android:textColor="#FFFFFF"
+                      android:textSize="16sp"
+                      android:textStyle="bold" />
+
+                  <Button
+                      android:id="@+id/btnAppSettings"
+                      android:layout_width="match_parent"
+                      android:layout_height="48dp"
+                      android:layout_marginTop="10dp"
+                      android:backgroundTint="#30363D"
+                      android:text="Открыть настройки разрешений"
+                      android:textAllCaps="false"
+                      android:textColor="#E6EDF3"
+                      android:visibility="gone" />
+
+              </LinearLayout>
+          </ScrollView>
+          EOF
+
+          cat <<'EOF' > app/src/main/java/com/example/transparentwallpaper/Prefs.kt
+          package com.example.transparentwallpaper
+
+          object Prefs {
+              const val NAME = "transparent_wallpaper_prefs"
+
+              const val KEY_LENS = "lens_mode"
+              const val LENS_BACK_WIDE = "wide"
+              const val LENS_BACK_1X = "back"
+              const val LENS_FRONT = "front"
+
+              const val KEY_FPS = "target_fps"
+              const val DEFAULT_FPS = 24
+
+              const val KEY_QUALITY = "quality_mode"
+              const val QUALITY_ECO = "eco"
+              const val QUALITY_HD = "hd"
+
+              const val KEY_DIM_PERCENT = "dim_percent"
+              const val DEFAULT_DIM_PERCENT = 20
+          }
+          EOF
+
+          cat <<'EOF' > app/src/main/java/com/example/transparentwallpaper/MainActivity.kt
+          package com.example.transparentwallpaper
+
+          import android.Manifest
+          import android.app.Activity
+          import android.app.WallpaperManager
+          import android.content.ActivityNotFoundException
+          import android.content.ComponentName
+          import android.content.Intent
+          import android.content.SharedPreferences
+          import android.content.pm.PackageManager
+          import android.net.Uri
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.view.View
+          import android.view.WindowInsets
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.RadioGroup
+          import android.widget.SeekBar
+          import android.widget.TextView
+          import android.widget.Toast
+
+          class MainActivity : Activity() {
+
+              private lateinit var prefs: SharedPreferences
+              private lateinit var tvStatus: TextView
+              private lateinit var tvDimLabel: TextView
+              private lateinit var btnSetWallpaper: Button
+              private lateinit var btnAppSettings: Button
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+
+                  prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE)
+
+                  val rootContainer = findViewById<LinearLayout>(R.id.rootContainer)
+                  val basePad = (20 * resources.displayMetrics.density).toInt()
+                  window.decorView.setOnApplyWindowInsetsListener { _, insets ->
+                      val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                      rootContainer.setPadding(
+                          basePad + bars.left,
+                          basePad + bars.top,
+                          basePad + bars.right,
+                          basePad + bars.bottom
+                      )
+                      insets
+                  }
+
+                  tvStatus = findViewById(R.id.tvPermissionStatus)
+                  tvDimLabel = findViewById(R.id.tvDimLabel)
+                  btnSetWallpaper = findViewById(R.id.btnSetWallpaper)
+                  btnAppSettings = findViewById(R.id.btnAppSettings)
+
+                  setupControls()
+                  updatePermissionUi()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  updatePermissionUi()
+              }
+
+              private fun setupControls() {
+                  val rgLens = findViewById<RadioGroup>(R.id.rgLens)
+                  when (prefs.getString(Prefs.KEY_LENS, Prefs.LENS_BACK_WIDE)) {
+                      Prefs.LENS_BACK_1X -> rgLens.check(R.id.rbLensBack)
+                      Prefs.LENS_FRONT -> rgLens.check(R.id.rbLensFront)
+                      else -> rgLens.check(R.id.rbLensWide)
+                  }
+                  rgLens.setOnCheckedChangeListener { _, checkedId ->
+                      val mode = when (checkedId) {
+                          R.id.rbLensBack -> Prefs.LENS_BACK_1X
+                          R.id.rbLensFront -> Prefs.LENS_FRONT
+                          else -> Prefs.LENS_BACK_WIDE
+                      }
+                      prefs.edit().putString(Prefs.KEY_LENS, mode).apply()
+                  }
+
+                  val rgFps = findViewById<RadioGroup>(R.id.rgFps)
+                  when (prefs.getInt(Prefs.KEY_FPS, Prefs.DEFAULT_FPS)) {
+                      15 -> rgFps.check(R.id.rbFps15)
+                      30 -> rgFps.check(R.id.rbFps30)
+                      else -> rgFps.check(R.id.rbFps24)
+                  }
+                  rgFps.setOnCheckedChangeListener { _, checkedId ->
+                      val fps = when (checkedId) {
+                          R.id.rbFps15 -> 15
+                          R.id.rbFps30 -> 30
+                          else -> 24
+                      }
+                      prefs.edit().putInt(Prefs.KEY_FPS, fps).apply()
+                  }
+
+                  val rgQuality = findViewById<RadioGroup>(R.id.rgQuality)
+                  when (prefs.getString(Prefs.KEY_QUALITY, Prefs.QUALITY_ECO)) {
+                      Prefs.QUALITY_HD -> rgQuality.check(R.id.rbQualityHd)
+                      else -> rgQuality.check(R.id.rbQualityEco)
+                  }
+                  rgQuality.setOnCheckedChangeListener { _, checkedId ->
+                      val q = if (checkedId == R.id.rbQualityHd) Prefs.QUALITY_HD else Prefs.QUALITY_ECO
+                      prefs.edit().putString(Prefs.KEY_QUALITY, q).apply()
+                  }
+
+                  val sbDim = findViewById<SeekBar>(R.id.sbDim)
+                  val initialDim = prefs.getInt(Prefs.KEY_DIM_PERCENT, Prefs.DEFAULT_DIM_PERCENT)
+                  sbDim.progress = initialDim
+                  tvDimLabel.text = "Затемнение OLED: $initialDim%"
+                  sbDim.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                      override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                          tvDimLabel.text = "Затемнение OLED: $progress%"
+                          if (fromUser) {
+                              prefs.edit().putInt(Prefs.KEY_DIM_PERCENT, progress).apply()
+                          }
+                      }
+                      override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                      override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                  })
+
+                  btnSetWallpaper.setOnClickListener {
+                      if (hasCameraPermission()) {
+                          launchLiveWallpaperPicker()
+                      } else {
+                          requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+                      }
+                  }
+
+                  btnAppSettings.setOnClickListener {
+                      val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                          data = Uri.fromParts("package", packageName, null)
+                      }
+                      startActivity(intent)
+                  }
+              }
+
+              private fun hasCameraPermission(): Boolean {
+                  return checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+              }
+
+              private fun updatePermissionUi() {
+                  if (hasCameraPermission()) {
+                      tvStatus.text = "Камера разрешена. Выберите параметры и нажмите кнопку ниже."
+                      btnSetWallpaper.text = "Установить как живые обои"
+                      btnAppSettings.visibility = View.GONE
+                  } else {
+                      tvStatus.text = "Для работы прозрачных обоев требуется доступ к камере."
+                      btnSetWallpaper.text = "Разрешить камеру и установить"
+                  }
+              }
+
+              override fun onRequestPermissionsResult(
+                  requestCode: Int,
+                  permissions: Array<out String>,
+                  grantResults: IntArray
+              ) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  if (requestCode == REQ_CAMERA) {
+                      updatePermissionUi()
+                      if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                          launchLiveWallpaperPicker()
+                      } else {
+                          btnAppSettings.visibility = View.VISIBLE
+                          Toast.makeText(this, "Выдайте доступ к камере в настройках", Toast.LENGTH_LONG).show()
+                      }
+                  }
+              }
+
+              private fun launchLiveWallpaperPicker() {
+                  try {
+                      val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+                          putExtra(
+                              WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                              ComponentName(this@MainActivity, TransparentWallpaperService::class.java)
+                          )
+                      }
+                      startActivity(intent)
+                  } catch (_: ActivityNotFoundException) {
+                      try {
+                          startActivity(Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
+                      } catch (_: Exception) {
+                          Toast.makeText(
+                              this,
+                              "Откройте: Настройки -> Обои и стиль -> Изменить обои -> Интерактивные",
+                              Toast.LENGTH_LONG
+                          ).show()
+                      }
+                  }
+              }
+
+              companion object {
+                  private const val REQ_CAMERA = 1001
+              }
+          }
+          EOF
+
+          cat <<'EOF' > app/src/main/java/com/example/transparentwallpaper/TransparentWallpaperService.kt
+          package com.example.transparentwallpaper
+
+          import android.Manifest
+          import android.content.SharedPreferences
+          import android.content.pm.PackageManager
+          import android.graphics.SurfaceTexture
+          import android.hardware.camera2.CameraAccessException
+          import android.hardware.camera2.CameraCaptureSession
+          import android.hardware.camera2.CameraCharacteristics
+          import android.hardware.camera2.CameraDevice
+          import android.hardware.camera2.CameraManager
+          import android.hardware.camera2.CameraMetadata
+          import android.hardware.camera2.CaptureRequest
+          import android.hardware.camera2.params.OutputConfiguration
+          import android.hardware.camera2.params.SessionConfiguration
+          import android.hardware.display.DisplayManager
+          import android.opengl.EGL14
+          import android.opengl.EGLConfig
+          import android.opengl.EGLContext
+          import android.opengl.EGLDisplay
+          import android.opengl.EGLSurface
+          import android.opengl.GLES11Ext
+          import android.opengl.GLES20
+          import android.opengl.Matrix
+          import android.os.Build
+          import android.os.Handler
+          import android.os.HandlerThread
+          import android.service.wallpaper.WallpaperService
+          import android.util.Log
+          import android.util.Range
+          import android.util.Size
+          import android.view.Display
+          import android.view.Surface
+          import android.view.SurfaceHolder
+          import java.nio.ByteBuffer
+          import java.nio.ByteOrder
+          import java.nio.FloatBuffer
+          import java.util.concurrent.CountDownLatch
+          import java.util.concurrent.Executor
+          import java.util.concurrent.TimeUnit
+          import kotlin.math.abs
+          import kotlin.math.max
+          import kotlin.math.min
+
+          class TransparentWallpaperService : WallpaperService() {
+
+              override fun onCreateEngine(): Engine = CameraWallpaperEngine()
+
+              inner class CameraWallpaperEngine : Engine() {
+
+                  private val tag = "TransparentWallpaper"
+
+                  private lateinit var prefs: SharedPreferences
+                  private lateinit var cameraManager: CameraManager
+
+                  private lateinit var glThread: HandlerThread
+                  private lateinit var glHandler: Handler
+                  private lateinit var cameraThread: HandlerThread
+                  private lateinit var cameraHandler: Handler
+                  private lateinit var cameraExecutor: Executor
+
+                  private var shouldOpen = false
+                  private var surfaceReady = false
+                  private var isOpening = false
+                  private var retryCount = 0
+                  private var activeCameraId: String? = null
+                  private var targetZoomRatio: Float = 1.0f
+                  private var targetFpsRange: Range<Int>? = null
+                  private var selectedPreviewSize = Size(1280, 720)
+                  private var sensorOrientation = 90
+                  private var isFrontCamera = false
+                  private var cameraDevice: CameraDevice? = null
+                  private var captureSession: CameraCaptureSession? = null
+
+                  private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
+                  private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
+                  private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+                  @Volatile private var glReady = false
+                  private var program = 0
+                  private var oesTexId = 0
+                  private var aPositionLoc = -1
+                  private var aTexCoordLoc = -1
+                  private var uTexMatrixLoc = -1
+                  private var uTextureLoc = -1
+                  private var uBrightnessLoc = -1
+                  @Volatile private var surfaceTexture: SurfaceTexture? = null
+                  @Volatile private var cameraInputSurface: Surface? = null
+
+                  @Volatile private var surfaceWidth = 1080
+                  @Volatile private var surfaceHeight = 2340
+                  @Volatile private var brightness = 0.80f
+
+                  private val stMatrix = FloatArray(16)
+                  private val cropRotateMatrix = FloatArray(16)
+                  private val finalTexMatrix = FloatArray(16)
+
+                  private val vertexBuffer: FloatBuffer = ByteBuffer
+                      .allocateDirect(QUAD_VERTICES.size * 4)
+                      .order(ByteOrder.nativeOrder())
+                      .asFloatBuffer()
+                      .apply {
+                          put(QUAD_VERTICES)
+                          position(0)
+                      }
+
+                  private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                      updateBrightnessFromPrefs()
+                      if (key == Prefs.KEY_LENS || key == Prefs.KEY_FPS || key == Prefs.KEY_QUALITY) {
+                          cameraHandler.post {
+                              if (shouldOpen && surfaceReady) {
+                                  closeCameraInternal()
+                                  retryCount = 0
+                                  openCameraIfNeeded()
+                              }
+                          }
+                      }
+                  }
+
+                  private val availabilityCallback = object : CameraManager.AvailabilityCallback() {
+                      override fun onCameraAvailable(cameraId: String) {
+                          if (shouldOpen && surfaceReady && cameraDevice == null && !isOpening && cameraId == activeCameraId) {
+                              retryCount = 0
+                              openCameraIfNeeded()
+                          }
+                      }
+                  }
+
+                  private val retryRunnable = Runnable {
+                      if (shouldOpen && surfaceReady && cameraDevice == null && !isOpening) {
+                          openCameraIfNeeded()
+                      }
+                  }
+
+                  override fun onCreate(surfaceHolder: SurfaceHolder) {
+                      super.onCreate(surfaceHolder)
+                      prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE)
+                      cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
+                      updateBrightnessFromPrefs()
+
+                      glThread = HandlerThread("TransparentGL").apply { start() }
+                      glHandler = Handler(glThread.looper)
+
+                      cameraThread = HandlerThread("TransparentCam").apply { start() }
+                      cameraHandler = Handler(cameraThread.looper)
+                      cameraExecutor = Executor { command -> cameraHandler.post(command) }
+
+                      prefs.registerOnSharedPreferenceChangeListener(prefListener)
+                      cameraManager.registerAvailabilityCallback(availabilityCallback, cameraHandler)
+                  }
+
+                  override fun onSurfaceCreated(holder: SurfaceHolder) {
+                      super.onSurfaceCreated(holder)
+                      glHandler.post { initGl(holder.surface) }
+                  }
+
+                  override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                      super.onSurfaceChanged(holder, format, width, height)
+                      surfaceWidth = max(1, width)
+                      surfaceHeight = max(1, height)
+                      glHandler.post {
+                          if (glReady) {
+                              GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
+                          }
+                      }
+                      cameraHandler.post {
+                          surfaceReady = true
+                          if (shouldOpen && cameraDevice == null && !isOpening) {
+                              openCameraIfNeeded()
+                          }
+                      }
+                  }
+
+                  override fun onVisibilityChanged(visible: Boolean) {
+                      super.onVisibilityChanged(visible)
+                      cameraHandler.post {
+                          shouldOpen = visible
+                          if (visible) {
+                              retryCount = 0
+                              if (surfaceReady) openCameraIfNeeded()
+                          } else {
+                              closeCameraInternal()
+                          }
+                      }
+                  }
+
+                  override fun onSurfaceDestroyed(holder: SurfaceHolder) {
+                      val camLatch = CountDownLatch(1)
+                      cameraHandler.post {
+                          surfaceReady = false
+                          closeCameraInternal()
+                          camLatch.countDown()
+                      }
+                      camLatch.await(300, TimeUnit.MILLISECONDS)
+
+                      val glLatch = CountDownLatch(1)
+                      glHandler.post {
+                          releaseGl()
+                          glLatch.countDown()
+                      }
+                      glLatch.await(500, TimeUnit.MILLISECONDS)
+                      super.onSurfaceDestroyed(holder)
+                  }
+
+                  override fun onDestroy() {
+                      prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
+                      try {
+                          cameraManager.unregisterAvailabilityCallback(availabilityCallback)
+                      } catch (_: Exception) {}
+
+                      val camLatch = CountDownLatch(1)
+                      cameraHandler.post {
+                          shouldOpen = false
+                          surfaceReady = false
+                          closeCameraInternal()
+                          camLatch.countDown()
+                      }
+                      camLatch.await(300, TimeUnit.MILLISECONDS)
+
+                      val glLatch = CountDownLatch(1)
+                      glHandler.post {
+                          releaseGl()
+                          glLatch.countDown()
+                      }
+                      glLatch.await(300, TimeUnit.MILLISECONDS)
+
+                      cameraThread.quitSafely()
+                      glThread.quitSafely()
+                      super.onDestroy()
+                  }
+
+                  private fun updateBrightnessFromPrefs() {
+                      val dim = prefs.getInt(Prefs.KEY_DIM_PERCENT, Prefs.DEFAULT_DIM_PERCENT).coerceIn(0, 80)
+                      brightness = (100 - dim) / 100f
+                  }
+
+                  private fun openCameraIfNeeded() {
+                      if (!shouldOpen || !surfaceReady || !glReady || cameraDevice != null || isOpening) return
+                      val st = surfaceTexture ?: return
+                      if (cameraInputSurface == null) return
+                      if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
+
+                      val config = resolveCameraConfig() ?: return
+                      activeCameraId = config.cameraId
+                      targetZoomRatio = config.zoomRatio
+                      targetFpsRange = config.fpsRange
+                      selectedPreviewSize = config.previewSize
+                      sensorOrientation = config.sensorOrientation
+                      isFrontCamera = config.isFront
+
+                      st.setDefaultBufferSize(selectedPreviewSize.width, selectedPreviewSize.height)
+
+                      isOpening = true
+                      try {
+                          cameraManager.openCamera(config.cameraId, cameraExecutor, object : CameraDevice.StateCallback() {
+                              override fun onOpened(device: CameraDevice) {
+                                  isOpening = false
+                                  if (!shouldOpen || !surfaceReady || !glReady) {
+                                      device.close()
+                                      return
+                                  }
+                                  cameraDevice = device
+                                  retryCount = 0
+                                  startCaptureSession(device)
+                              }
+
+                              override fun onDisconnected(device: CameraDevice) {
+                                  isOpening = false
+                                  device.close()
+                                  if (cameraDevice === device) cameraDevice = null
+                                  captureSession = null
+                              }
+
+                              override fun onError(device: CameraDevice, error: Int) {
+                                  isOpening = false
+                                  device.close()
+                                  if (cameraDevice === device) cameraDevice = null
+                                  captureSession = null
+                                  Log.w(tag, "Camera onError: $error")
+                                  scheduleRetryIfVisible()
+                              }
+                          })
+                      } catch (e: CameraAccessException) {
+                          isOpening = false
+                          Log.w(tag, "openCamera failed: ${e.reason}")
+                          scheduleRetryIfVisible()
+                      } catch (e: SecurityException) {
+                          isOpening = false
+                          Log.w(tag, "Camera permission revoked", e)
+                      }
+                  }
+
+                  private fun startCaptureSession(device: CameraDevice) {
+                      val targetSurface = cameraInputSurface ?: return
+                      try {
+                          val outputConfig = OutputConfiguration(targetSurface)
+                          val sessionConfig = SessionConfiguration(
+                              SessionConfiguration.SESSION_REGULAR,
+                              listOf(outputConfig),
+                              cameraExecutor,
+                              object : CameraCaptureSession.StateCallback() {
+                                  override fun onConfigured(session: CameraCaptureSession) {
+                                      if (!shouldOpen || !surfaceReady || cameraDevice !== device) {
+                                          try { session.close() } catch (_: Exception) {}
+                                          return
+                                      }
+                                      captureSession = session
+                                      try {
+                                          val chars = cameraManager.getCameraCharacteristics(device.id)
+                                          val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                                              addTarget(targetSurface)
+                                              set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
+                                              set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+
+                                              val afModes = chars.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)
+                                              if (afModes != null) {
+                                                  when {
+                                                      afModes.contains(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO) ->
+                                                          set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                                                      afModes.contains(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE) ->
+                                                          set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                                      afModes.contains(CameraMetadata.CONTROL_AF_MODE_AUTO) ->
+                                                          set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
+                                                  }
+                                              }
+
+                                              targetFpsRange?.let {
+                                                  set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
+                                              }
+
+                                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetZoomRatio != 1.0f) {
+                                                  val zoomRange = chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+                                                  if (zoomRange != null) {
+                                                      set(
+                                                          CaptureRequest.CONTROL_ZOOM_RATIO,
+                                                          targetZoomRatio.coerceIn(zoomRange.lower, zoomRange.upper)
+                                                      )
+                                                  }
+                                              }
+                                          }
+                                          session.setRepeatingRequest(builder.build(), null, cameraHandler)
+                                      } catch (e: Exception) {
+                                          Log.w(tag, "setRepeatingRequest failed", e)
+                                      }
+                                  }
+
+                                  override fun onConfigureFailed(session: CameraCaptureSession) {
+                                      Log.w(tag, "CaptureSession configure failed")
+                                      scheduleRetryIfVisible()
+                                  }
+                              }
+                          )
+                          device.createCaptureSession(sessionConfig)
+                      } catch (e: Exception) {
+                          Log.w(tag, "createCaptureSession failed", e)
+                          scheduleRetryIfVisible()
+                      }
+                  }
+
+                  private fun closeCameraInternal() {
+                      cameraHandler.removeCallbacks(retryRunnable)
+                      isOpening = false
+                      try { captureSession?.close() } catch (_: Exception) {}
+                      captureSession = null
+                      try { cameraDevice?.close() } catch (_: Exception) {}
+                      cameraDevice = null
+                  }
+
+                  private fun scheduleRetryIfVisible() {
+                      if (!shouldOpen || !surfaceReady || retryCount >= 4) return
+                      retryCount++
+                      cameraHandler.removeCallbacks(retryRunnable)
+                      cameraHandler.postDelayed(retryRunnable, 250L * retryCount)
+                  }
+
+                  private data class CameraConfig(
+                      val cameraId: String,
+                      val zoomRatio: Float,
+                      val fpsRange: Range<Int>?,
+                      val previewSize: Size,
+                      val sensorOrientation: Int,
+                      val isFront: Boolean
+                  )
+
+                  private fun resolveCameraConfig(): CameraConfig? {
+                      val lensMode = prefs.getString(Prefs.KEY_LENS, Prefs.LENS_BACK_WIDE) ?: Prefs.LENS_BACK_WIDE
+                      val targetFps = prefs.getInt(Prefs.KEY_FPS, Prefs.DEFAULT_FPS)
+                      val qualityMode = prefs.getString(Prefs.KEY_QUALITY, Prefs.QUALITY_ECO) ?: Prefs.QUALITY_ECO
+
+                      val ids = try { cameraManager.cameraIdList } catch (_: Exception) { return null }
+                      if (ids.isEmpty()) return null
+
+                      var chosenId: String? = null
+                      var zoom = 1.0f
+
+                      if (lensMode == Prefs.LENS_FRONT) {
+                          chosenId = ids.firstOrNull { id ->
+                              cameraManager.getCameraCharacteristics(id)
+                                  .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+                          }
+                      } else {
+                          val backIds = ids.filter { id ->
+                              cameraManager.getCameraCharacteristics(id)
+                                  .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                          }
+                          val primaryBack = backIds.firstOrNull()
+                          if (lensMode == Prefs.LENS_BACK_WIDE && primaryBack != null) {
+                              val chars = cameraManager.getCameraCharacteristics(primaryBack)
+                              val zoomRange = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                  chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+                              } else null
+
+                              if (zoomRange != null && zoomRange.lower < 0.95f) {
+                                  chosenId = primaryBack
+                                  zoom = max(0.6f, zoomRange.lower)
+                              } else {
+                                  chosenId = backIds.minByOrNull { id ->
+                                      cameraManager.getCameraCharacteristics(id)
+                                          .get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                                          ?.minOrNull() ?: Float.MAX_VALUE
+                                  }
+                              }
+                          } else {
+                              chosenId = primaryBack
+                          }
+                      }
+
+                      val finalId = chosenId ?: ids.first()
+                      val chars = cameraManager.getCameraCharacteristics(finalId)
+
+                      val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+                      val sizes = map.getOutputSizes(SurfaceTexture::class.java) ?: return null
+                      val previewSize = pickOptimalSize(sizes, qualityMode)
+
+                      val fpsRanges = chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                      val fpsRange = pickFpsRange(fpsRanges, targetFps)
+
+                      val orientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+                      val front = chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+
+                      return CameraConfig(finalId, zoom, fpsRange, previewSize, orientation, front)
+                  }
+
+                  private fun pickOptimalSize(sizes: Array<Size>, qualityMode: String): Size {
+                      val maxShort = if (qualityMode == Prefs.QUALITY_HD) 1080 else 720
+                      val maxLong = if (qualityMode == Prefs.QUALITY_HD) 2200 else 1600
+
+                      val candidates = sizes.filter { s ->
+                          val shortSide = min(s.width, s.height)
+                          val longSide = max(s.width, s.height)
+                          shortSide in 480..maxShort && longSide <= maxLong
+                      }
+
+                      val pool = if (candidates.isNotEmpty()) candidates else sizes.toList()
+                      return pool.maxWithOrNull(
+                          compareBy<Size> { s ->
+                              val ratio = max(s.width, s.height).toFloat() / min(s.width, s.height).toFloat()
+                              -abs(ratio - (16f / 9f))
+                          }.thenBy { s -> s.width * s.height }
+                      ) ?: Size(1280, 720)
+                  }
+
+                  private fun pickFpsRange(ranges: Array<Range<Int>>?, targetFps: Int): Range<Int>? {
+                      if (ranges.isNullOrEmpty()) return null
+                      val underOrEqual = ranges.filter { it.upper <= targetFps }
+                      val pool = if (underOrEqual.isNotEmpty()) underOrEqual else ranges.toList()
+                      return pool.maxWithOrNull(
+                          compareBy<Range<Int>> { -abs(it.upper - targetFps) }
+                              .thenBy { it.upper - it.lower }
+                      )
+                  }
+
+                  private fun initGl(surface: Surface) {
+                      if (glReady) return
+                      eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+                      if (eglDisplay == EGL14.EGL_NO_DISPLAY) return
+
+                      val version = IntArray(2)
+                      if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) return
+
+                      val attribList = intArrayOf(
+                          EGL14.EGL_RED_SIZE, 8,
+                          EGL14.EGL_GREEN_SIZE, 8,
+                          EGL14.EGL_BLUE_SIZE, 8,
+                          EGL14.EGL_ALPHA_SIZE, 8,
+                          EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                          EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT,
+                          EGL14.EGL_NONE
+                      )
+                      val configs = arrayOfNulls<EGLConfig>(1)
+                      val numConfigs = IntArray(1)
+                      if (!EGL14.eglChooseConfig(eglDisplay, attribList, 0, configs, 0, 1, numConfigs, 0)) return
+                      val config = configs[0] ?: return
+
+                      val ctxAttribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+                      eglContext = EGL14.eglCreateContext(eglDisplay, config, EGL14.EGL_NO_CONTEXT, ctxAttribs, 0)
+                      if (eglContext == EGL14.EGL_NO_CONTEXT) return
+
+                      eglSurface = EGL14.eglCreateWindowSurface(
+                          eglDisplay, config, surface, intArrayOf(EGL14.EGL_NONE), 0
+                      )
+                      if (eglSurface == EGL14.EGL_NO_SURFACE) return
+
+                      if (!EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) return
+
+                      program = buildProgram(VERTEX_SHADER, FRAGMENT_SHADER)
+                      if (program == 0) return
+
+                      aPositionLoc = GLES20.glGetAttribLocation(program, "aPosition")
+                      aTexCoordLoc = GLES20.glGetAttribLocation(program, "aTexCoord")
+                      uTexMatrixLoc = GLES20.glGetUniformLocation(program, "uTexMatrix")
+                      uTextureLoc = GLES20.glGetUniformLocation(program, "uTexture")
+                      uBrightnessLoc = GLES20.glGetUniformLocation(program, "uBrightness")
+
+                      val texIds = IntArray(1)
+                      GLES20.glGenTextures(1, texIds, 0)
+                      oesTexId = texIds[0]
+                      GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexId)
+                      GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                      GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                      GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                      GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+
+                      val st = SurfaceTexture(oesTexId).apply {
+                          setDefaultBufferSize(selectedPreviewSize.width, selectedPreviewSize.height)
+                          setOnFrameAvailableListener({ drawFrame() }, glHandler)
+                      }
+                      surfaceTexture = st
+                      cameraInputSurface = Surface(st)
+
+                      GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
+                      GLES20.glClearColor(0f, 0f, 0f, 1f)
+                      GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                      EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+
+                      glReady = true
+                      cameraHandler.post {
+                          if (shouldOpen && surfaceReady && cameraDevice == null && !isOpening) {
+                              openCameraIfNeeded()
+                          }
+                      }
+                  }
+
+                  private fun drawFrame() {
+                      val st = surfaceTexture ?: return
+                      if (!glReady || eglSurface == EGL14.EGL_NO_SURFACE) return
+
+                      if (EGL14.eglGetCurrentContext() != eglContext) {
+                          if (!EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) return
+                      }
+
+                      try {
+                          st.updateTexImage()
+                      } catch (_: Exception) {
+                          return
+                      }
+                      st.getTransformMatrix(stMatrix)
+
+                      val stSwapsAxes = abs(stMatrix[1]) > abs(stMatrix[0])
+                      val sensorSwaps = (sensorOrientation == 90 || sensorOrientation == 270)
+                      val naturalW = if (sensorSwaps) selectedPreviewSize.height.toFloat() else selectedPreviewSize.width.toFloat()
+                      val naturalH = if (sensorSwaps) selectedPreviewSize.width.toFloat() else selectedPreviewSize.height.toFloat()
+
+                      val displayDegrees = when (getCurrentDisplayRotation()) {
+                          Surface.ROTATION_90 -> 90
+                          Surface.ROTATION_180 -> 180
+                          Surface.ROTATION_270 -> 270
+                          else -> 0
+                      }
+
+                      val screenRotated90 = (displayDegrees == 90 || displayDegrees == 270)
+                      val displayedCamW = if (screenRotated90) naturalH else naturalW
+                      val displayedCamH = if (screenRotated90) naturalW else naturalH
+
+                      val screenAspect = surfaceWidth.toFloat() / max(1, surfaceHeight).toFloat()
+                      val camAspect = displayedCamW / max(1f, displayedCamH)
+
+                      val cropScaleX = if (camAspect > screenAspect) screenAspect / camAspect else 1f
+                      val cropScaleY = if (camAspect < screenAspect) camAspect / screenAspect else 1f
+
+                      val baseSensorFix = if (sensorSwaps && !stSwapsAxes) {
+                          if (isFrontCamera) -sensorOrientation else sensorOrientation
+                      } else {
+                          0
+                      }
+
+                      Matrix.setIdentityM(cropRotateMatrix, 0)
+                      Matrix.translateM(cropRotateMatrix, 0, 0.5f, 0.5f, 0f)
+                      Matrix.rotateM(cropRotateMatrix, 0, (baseSensorFix - displayDegrees).toFloat(), 0f, 0f, 1f)
+                      Matrix.scaleM(cropRotateMatrix, 0, cropScaleX, cropScaleY, 1f)
+                      Matrix.translateM(cropRotateMatrix, 0, -0.5f, -0.5f, 0f)
+
+                      Matrix.multiplyMM(finalTexMatrix, 0, stMatrix, 0, cropRotateMatrix, 0)
+
+                      GLES20.glUseProgram(program)
+                      GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                      GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexId)
+                      GLES20.glUniform1i(uTextureLoc, 0)
+                      GLES20.glUniform1f(uBrightnessLoc, brightness)
+                      GLES20.glUniformMatrix4fv(uTexMatrixLoc, 1, false, finalTexMatrix, 0)
+
+                      vertexBuffer.position(0)
+                      GLES20.glEnableVertexAttribArray(aPositionLoc)
+                      GLES20.glVertexAttribPointer(aPositionLoc, 2, GLES20.GL_FLOAT, false, 16, vertexBuffer)
+
+                      vertexBuffer.position(2)
+                      GLES20.glEnableVertexAttribArray(aTexCoordLoc)
+                      GLES20.glVertexAttribPointer(aTexCoordLoc, 2, GLES20.GL_FLOAT, false, 16, vertexBuffer)
+
+                      GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                      EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+                  }
+
+                  private fun getCurrentDisplayRotation(): Int {
+                      val dm = getSystemService(DisplayManager::class.java)
+                      val display = displayContext?.display ?: dm?.getDisplay(Display.DEFAULT_DISPLAY)
+                      return display?.rotation ?: Surface.ROTATION_0
+                  }
+
+                  private fun releaseGl() {
+                      glReady = false
+                      try { cameraInputSurface?.release() } catch (_: Exception) {}
+                      cameraInputSurface = null
+                      try { surfaceTexture?.release() } catch (_: Exception) {}
+                      surfaceTexture = null
+
+                      if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
+                          EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                          if (oesTexId != 0) {
+                              GLES20.glDeleteTextures(1, intArrayOf(oesTexId), 0)
+                              oesTexId = 0
+                          }
+                          if (program != 0) {
+                              GLES20.glDeleteProgram(program)
+                              program = 0
+                          }
+                          if (eglSurface != EGL14.EGL_NO_SURFACE) {
+                              EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                              eglSurface = EGL14.EGL_NO_SURFACE
+                          }
+                          if (eglContext != EGL14.EGL_NO_CONTEXT) {
+                              EGL14.eglDestroyContext(eglDisplay, eglContext)
+                              eglContext = EGL14.EGL_NO_CONTEXT
+                          }
+                          EGL14.eglTerminate(eglDisplay)
+                          eglDisplay = EGL14.EGL_NO_DISPLAY
+                      }
+                  }
+
+                  private fun buildProgram(vertexSrc: String, fragmentSrc: String): Int {
+                      val vs = compileShader(GLES20.GL_VERTEX_SHADER, vertexSrc)
+                      val fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSrc)
+                      if (vs == 0 || fs == 0) return 0
+                      val prog = GLES20.glCreateProgram()
+                      GLES20.glAttachShader(prog, vs)
+                      GLES20.glAttachShader(prog, fs)
+                      GLES20.glLinkProgram(prog)
+                      GLES20.glDeleteShader(vs)
+                      GLES20.glDeleteShader(fs)
+                      val linked = IntArray(1)
+                      GLES20.glGetProgramiv(prog, GLES20.GL_LINK_STATUS, linked, 0)
+                      if (linked[0] == 0) {
+                          GLES20.glDeleteProgram(prog)
+                          return 0
+                      }
+                      return prog
+                  }
+
+                  private fun compileShader(type: Int, src: String): Int {
+                      val shader = GLES20.glCreateShader(type)
+                      GLES20.glShaderSource(shader, src)
+                      GLES20.glCompileShader(shader)
+                      val compiled = IntArray(1)
+                      GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0)
+                      if (compiled[0] == 0) {
+                          GLES20.glDeleteShader(shader)
+                          return 0
+                      }
+                      return shader
+                  }
+              }
+
+              companion object {
+                  private val QUAD_VERTICES = floatArrayOf(
+                      -1f, -1f, 0f, 0f,
+                       1f, -1f, 1f, 0f,
+                      -1f,  1f, 0f, 1f,
+                       1f,  1f, 1f, 1f
+                  )
+
+                  private const val VERTEX_SHADER = """
+                      attribute vec2 aPosition;
+                      attribute vec2 aTexCoord;
+                      uniform mat4 uTexMatrix;
+                      varying vec2 vTexCoord;
+                      void main() {
+                          gl_Position = vec4(aPosition, 0.0, 1.0);
+                          vTexCoord = (uTexMatrix * vec4(aTexCoord, 0.0, 1.0)).xy;
+                      }
+                  """
+
+                  private const val FRAGMENT_SHADER = """
+                      #extension GL_OES_EGL_image_external : require
+                      precision mediump float;
+                      varying vec2 vTexCoord;
+                      uniform samplerExternalOES uTexture;
+                      uniform float uBrightness;
+                      void main() {
+                          vec4 c = texture2D(uTexture, vTexCoord);
+                          gl_FragColor = vec4(c.rgb * uBrightness, 1.0);
+                      }
+                  """
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/outputs/apk/debug/app-debug.apk
+          archive: false
